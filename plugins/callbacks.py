@@ -12,6 +12,8 @@ import re
 from pytube import YouTube, Playlist
 from pydub import AudioSegment
 import time
+import yt_dlp
+
 
 from helpers.youtube import get_filetype_keyboard, progress
 
@@ -98,39 +100,30 @@ async def download(client, callback_query):
     # Get the video object from the user's data
     cb_data = callback_query.data.replace('download_', '')
     video_id, c_resolution, c_type = cb_data.split(':')
-    youtube = YouTube(f'https://www.youtube.com/watch?v={video_id}')
-    title = youtube.title
-    thumbnail_url = youtube.thumbnail_url
-    description = youtube.description
-    formatted_text = f"<b>{title}</b>\n\n{description[:300]}{'...' if len(description) > 300 else ''} \n\n<b>Powerd By: @TMWAD With <a href='https://t.me/videoDefUserBot''>@videoDefUserBot</a></b>."
+    youtube_url = f'https://www.youtube.com/watch?v={video_id}'
+
+    # Use yt-dlp to get video info
+    ydl_opts = {'quiet': True}
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(youtube_url, download=False)
+        title = info['title']
+        thumbnail_url = info['thumbnail']
+        description = info['description']
+        formatted_text = f"<b>{title}</b>\n\n{description[:300]}{'...' if len(description) > 300 else ''} \n\n<b>Powerd By: @TMWAD With <a href='https://t.me/videoDefUserBot''>@videoDefUserBot</a></b>."
+
     # Get a list of all streams for the video
-    # Replace | with -
-    file_name = f"{youtube.title} - {youtube.author}".replace("|", "-")
+    file_name = f"{title} - {info['uploader']}".replace("|", "-")
+
     if c_resolution == 'n' and c_type == 'n':
-        extensions = []
+        # Use yt-dlp to download video
+        ydl_opts = {'format': 'bapest', 'outtmpl': f'{file_name}.%(ext)s'}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download(youtube_url)
 
-        for stream in youtube.streams:
-            mime_type = stream.mime_type
-            extension = mime_type.split('/')[-1]
-            extensions.append(extension)
-
-        if len(extensions) == 1:
-            filetype = extensions[0]
-        elif 'mp4' in extensions:
-            filetype = 'mp4'
-        else:
-            filetype = extensions[0]
-
-        video = youtube.streams.filter(
-            res='720p', file_extension=filetype, progressive=True).first()
-        if video is not None:
-            video.download(filename=f"{file_name}.{filetype}")
-        else:
-            return await callback_query.answer("Please Choice Another resolution. your decied resolution is not available", show_alert=True)
         # Send the downloaded video to the user
         await client.send_video(
             chat_id=callback_query.message.chat.id,
-            video=open(f'{file_name}.{filetype}', 'rb'),
+            video=open(f'{file_name}.mp4', 'rb'),
             caption=formatted_text,
             parse_mode=ParseMode.HTML,
             progress=progress,
@@ -139,100 +132,50 @@ async def download(client, callback_query):
         if os.path.exists(f'{file_name}.mp4'):
             os.remove(f'{file_name}.mp4')
 
-    elif c_type == 'video' and c_type == 'n':
-        extensions = []
+    elif c_type == 'video' and c_resolution != 'n':
+        # Use yt-dlp to download video
+        ydl_opts = {'format': f'{c_resolution}+bestaudio', 'outtmpl': f'{file_name}.%(ext)s'}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download(youtube_url)
 
-        for stream in youtube.streams:
-            mime_type = stream.mime_type
-            extension = mime_type.split('/')[-1]
-            extensions.append(extension)
-
-        if len(extensions) == 1:
-            filetype = extensions[0]
-        elif 'mp4' in extensions:
-            filetype = 'mp4'
-        else:
-            filetype = extensions[0]
-
-        video = youtube.streams.filter(
-            res='720p', file_extension=filetype, progressive=True).first()
-        if video is not None:
-            video.download(filename=f"{file_name}.{filetype}")
-        else:
-            return await callback_query.answer("Please Choice Another resolution. your decied resolution is not available", show_alert=True)
         # Send the downloaded video to the user
         await client.send_video(
             chat_id=callback_query.message.chat.id,
-            video=open(f'{file_name}.{filetype}', 'rb'),
+            video=open(f'{file_name}.mp4', 'rb'),
             caption=formatted_text,
             parse_mode=ParseMode.HTML,
             progress=progress,
         )
-        if os.path.exists(f'{file_name}.mp4'):
-            os.remove(f'{file_name}.mp4')
 
-    elif c_type == 'video' and c_type != 'n':
-        extensions = []
-
-        for stream in youtube.streams:
-            mime_type = stream.mime_type
-            extension = mime_type.split('/')[-1]
-            extensions.append(extension)
-
-        if len(extensions) == 1:
-            filetype = extensions[0]
-        elif 'mp4' in extensions:
-            filetype = 'mp4'
-        else:
-            filetype = extensions[0]
-
-        video = youtube.streams.filter(
-            res=c_resolution, file_extension=filetype, progressive=True).first()
-        if video is not None:
-            video.download(filename=f"{file_name}.{filetype}")
-        else:
-            return await callback_query.answer("Please Choice Another resolution. your decied resolution is not available", show_alert=True)
-        # Send the downloaded video to the user
-        await client.send_video(
-            chat_id=callback_query.message.chat.id,
-            video=open(f'{file_name}.{filetype}', 'rb'),
-            caption=formatted_text,
-            parse_mode=ParseMode.HTML,
-            progress=progress,
-        )
         if os.path.exists(f'{file_name}.mp4'):
             os.remove(f'{file_name}.mp4')
 
     elif c_type == 'audio':
-        audio_streams = youtube.streams.filter(
-            res=c_resolution,file_extension='mp4', progressive=True).first()
-        if audio_streams is not None:
-            audio_file = audio_streams.download(filename=file_name)
-        else:
-            return await callback_query.answer("Audio File is not availbe for this link!", show_alert=True)
-        # Send the downloaded video to the user
-        # Create an audio segment from the downloaded file
+        # Use yt-dlp to download audio
+        ydl_opts = {'format': 'bapest', 'outtmpl': f'{file_name}.%(ext)s'}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download(youtube_url)
+
+        # Convert audio to mp3
+        audio_file = f'{file_name}.m4a'
+        mp3_file = f'{file_name}.mp3'
         audio_segment = AudioSegment.from_file(audio_file)
-        mp3_file = audio_file[:-3] + 'mp3'
         audio_segment.export(mp3_file, format='mp3')
 
         # Delete the original audio file
-        try:
-            await client.send_audio(
-                chat_id=callback_query.message.chat.id,
-                audio=open(f'{file_name}.mp3', 'rb'),
-                caption=formatted_text,
-                parse_mode=ParseMode.HTML,
-                progress=progress,
-            )
-        except Exception as e:
-            return await client.send_message(callback_query.message.chat.id, f"Error {e}")
+        os.remove(audio_file)
 
-        if os.path.exists(f'{file_name}.mp3'):
-            os.remove(f'{file_name}.mp3')
-        if os.path.exists(f'{file_name}.mp4'):
-            os.remove(f'{file_name}.mp4')
+        # Send the downloaded audio to the user
+        await client.send_audio(
+            chat_id=callback_query.message.chat.id,
+            audio=open(mp3_file, 'rb'),
+            caption=formatted_text,
+            parse_mode=ParseMode.HTML,
+            progress=progress,
+        )
 
+        if os.path.exists(mp3_file):
+            os.remove(mp3_file)
 
 @Client.on_callback_query(filters.regex(r'^pl_res_'))
 async def pl_select_resolution(client, callback_query):
